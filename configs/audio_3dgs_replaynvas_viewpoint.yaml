@@ -1,0 +1,162 @@
+# Audio 3D Gaussian Splatting Configuration for ReplayNVAS Dataset - Viewpoint Split (Paper Style)
+# Uses 7 viewpoints for training, 1 for testing per scene (as in the paper)
+
+# Basic configuration
+device: cuda
+seed: 42
+output_dir: audio_3dgs_replaynvas_viewpoint
+log_dir: logs/audio_3dgs_replaynvas_viewpoint
+workers: 1
+
+# Model configuration
+model:
+  file: audio_3dgs_mono_diff_gs_only # audio_3dgs_mono_diff_gs_only
+  model_type: audio_3dgs
+  joint_emb_dim: 256
+  pretrained_encoder: ''
+  render_type: audio
+  use_visual: false
+  use_cam_rotation: true
+  # Enable injecting stereo cues (ILD) into diff branch
+  use_stereo_cues: false
+  # Spherical Harmonics degree (0..3 -> 16 coeffs)
+  sh_degree: 3
+  # Encourage early spatial learning for higher-order SH (break symmetry)
+  sh_rand_init_std: 0.1
+  # Whether to rotate viewing dirs into each point's local frame before SH eval.
+  #   true  = use per-point rotation quaternions (current Audio3DGS default)
+  #   false = evaluate SH directly in world/cam frame directions (closer to vanilla 3DGS)
+  use_point_rotation: true
+  # Optional: normalize xyz / camera positions by max_norm internally to
+  # improve optimization conditioning of spatial parameters.
+  normalize_world_coords: false
+  use_groupnorm: false
+  diff_use_inv_distance: true
+  diff_use_side_mag: false
+  use_freq_atten: true        # 是否启用每个时间-频率点的距离衰减（相对 source viewpoint 归一化）
+  freq_atten_alpha: 1.0        # 距离衰减指数 α
+  # Optional: enable per-point distance attenuation exponents alpha_i so that
+  # each TF-bin / audio point uses its own falloff g_i(r) ∝ 1/(r+eps)^{alpha_i}.
+  # When true, this refines the simple global freq_atten_alpha; alpha_i are
+  # learned from data and softly constrained to a reasonable range.
+  use_pointwise_alpha: false
+  # Optional Hopkins–Stryker style attenuation (direct + reverberant field).
+  # When enabled, replace simple 1/r^α with:
+  #   E(r) = Q/(4πr^2) + 4/R_c, g(r) ∝ sqrt(E(r)/E_ref(r))
+  use_hopkins_atten: false     # 若为 true，则使用 Hopkins–Stryker 形式的距离/混响建模
+  hopkins_learn_params: false   # 若为 true，Q 与 R_c 为可学习标量（R_c 以 log 形式存储）
+  use_energy_weighted_freq_dist: false  # 若为 false，则 d_f 按时间简单平均（每频带不做能量加权）
+  # Optional: geometry-guided explicit phase shift (ITD) for each audio point.
+  # When enabled, we model the head as a rigid sphere and inject a physically
+  # derived ITD as a relative phase shift w.r.t. a reference viewpoint.
+  use_geom_phase: false
+  head_width: 0.18     # inter-aural distance (meters); used if head_radius is not set
+  head_radius: 0.09    # rigid-sphere radius a (meters)
+  sound_speed: 34300.0   # sound propagation speed (m/s) # 343.0
+  geom_phase_f_low_hz: 500.0   # low-frequency threshold (Hz)
+  geom_phase_f_high_hz: 1500.0 # high-frequency threshold (Hz)
+  use_geom_phase_residual: true  # whether to learn residual phase on top of geom phase
+  geom_phase_residual_scale_limit: 0.5  # scale limit for residual phase (w.r.t. geom phase)
+  # Optional: anchor _xyz initialization around scene camera centers (ReplayNVAS)
+  # When true, _xyz will be initialized as:
+  #   center_scene + N(0, xyz_anchor_radius^2 I)
+  # where center_scene is the mean of DSLR-* camera centers for dataset.scene_scope.
+  xyz_anchor_to_scene: true
+  xyz_anchor_radius: 2.5
+  abs_mag_output: false
+  max_norm: 10.0
+  mono_mask_activation: sigmoid # options: sigmoid (default), relu, none
+
+  xyz_init_from_sfm: false
+# Dataset configuration
+dataset:
+  name: libs.datasets.audio_3dgs_replaynvas_viewpoint
+  data_root: data/avcloud_data/ReplayNVAS
+  sr: 16000
+  audio_len: 3.0  
+  H: 257
+  W: 160
+  N_points: 89436
+  scene_normalize: false
+  # Frame sampling stride per scene (set to 1 to use every frame)
+  frame_stride_train: 1
+  frame_stride_test: 1
+  # Use center crop for training instead of random crop
+  train_random_crop: false
+  # When using viewpoint input with input_viewpoint<=0, randomly pick
+  # an input viewpoint from training set per-sample (exclude target)
+  random_input_viewpoint: false
+  # Optional: enable random input viewpoint also for val/test splits
+  # (exclude target viewpoint). Keep false for fair NVAS-style comparison.
+  random_input_viewpoint_eval: false
+
+  pose_source: replay_metadata # fixed_rotation / gs_cameras / replay_metadata
+  replay_metadata_file: data/Replay/metadata.sqlite
+  replay_metadata_frame_lookup: offset
+  # How to interpret camera_positions_fixed_rotation.json `rotations`:
+  #   - lookat  : use full 3D forward vector (adds pitch; roll inferred from world_up)
+  #   - yaw_only: project forward onto horizontal plane (ignore pitch/roll; z-up)
+  fixed_rotation_mode: yaw_only
+  fixed_rotation_world_up: [0.0, 0.0, 1.0]
+
+  # Apply AV-Cloud style preprocessing at load time
+  bandpass:
+    enable: true         # enable bandpass filtering for source/target
+    low_hz: 150.0        # 150 Hz high-pass (paper/default)
+    high_hz: -1.0        # use Nyquist-1 when <= 0
+    order: 5             # filter order
+  train:
+    drop_last: true
+    shuffle: true
+    sampler: ''
+  test:
+    drop_last: false
+    shuffle: false
+    sampler: ''
+
+# Training configuration
+train:
+  file: Audio3DGSTrainer
+  max_epoch: 61
+  batch_size: 1
+  lr: 5e-4
+  lr_decay: 0.95
+  lr_decay_step: 5
+  weight_decay: 1e-15
+  grad_clip: 1.0
+  # 空间参数学习率
+  lr_sh_mult: 1.0
+  lr_rot_mult: 1.0
+  lr_xyz_mult: 50.0
+  # 距离衰减系数（use_pointwise_alpha）单独学习率倍率
+  lr_alpha_mult: 0.1
+  # 冻结 SH 前期训练以先收敛 xyz（按总 epoch 比例，可为 0 关闭）
+  freeze_sh_first_frac: 0.1
+  # 可选：SH 解冻后冻结 xyz，避免后期 xyz 漂移（默认关闭）
+  freeze_xyz_after_sh_unfreeze: false
+  phase_loss_weight: 0.05
+  diff_weight: 2.0
+  print_freq: 10
+  val_freq: 10
+  save_interval: 20
+  save_freq: 20
+  valiter_interval: 50
+  val_when_train: true
+  save_every_checkpoint: false
+  resume: false
+  criterion_file: Criterion
+  phase_loss_target: lr # mono_diff 或 lr
+  # 以下皆为测试用loss权重（现在未用到）
+  enhanced_weight: 0.0
+  # 可选：在谱图上使用 PSNR 图像损失（默认关闭）
+  use_image_psnr_loss: false   # 若为 true，将在 mono/diff 的谱图上加入负 PSNR 损失
+  image_psnr_weight: 0.001      # PSNR 损失权重（仅在 use_image_psnr_loss 为 true 时生效）
+  # 若关闭 MR-STFT，则仅使用固定单分辨率 STFT 损失
+  # 启用 MR-STFT，可设为 true，并按需选择随机或固定分辨率
+  use_mr_stft_loss: true
+  # 随机/固定 MR-STFT 配置（仅在 use_mr_stft_loss 为 true 时生效）
+  # 若想固定可复现，设置 use_random_stft: false 或 randstft_max_fft: 0
+  use_random_stft: false
+  randstft_max_fft: 32768
+  use_log_mag_loss: false
+  
