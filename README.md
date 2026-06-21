@@ -12,6 +12,31 @@ or install:
 pip install -r requirements.txt
 ```
 
+## Data Download
+
+Download ReplayNVAS v3 audio data:
+
+```bash
+mkdir -p data/avcloud_data/ReplayNVAS
+wget https://dl.fbaipublicfiles.com/large_objects/nvas/v3.zip -O data/avcloud_data/ReplayNVAS/v3.zip
+unzip data/avcloud_data/ReplayNVAS/v3.zip -d data/avcloud_data/ReplayNVAS
+```
+
+Download Replay metadata:
+
+```bash
+mkdir -p data/Replay
+wget https://dl.fbaipublicfiles.com/replay/v0/metadata.zip -O data/Replay/metadata.zip
+unzip data/Replay/metadata.zip -d data/Replay
+```
+
+After extraction, make sure these paths exist:
+
+```text
+data/avcloud_data/ReplayNVAS/v3/
+data/Replay/metadata.sqlite
+```
+
 ## Data Layout
 
 Put ReplayNVAS under:
@@ -42,12 +67,6 @@ So also provide:
 
 ```text
 data/Replay/metadata.sqlite
-```
-
-If you want to use `camera_positions_fixed_rotation.json` instead, override:
-
-```bash
-dataset.pose_source fixed_rotation
 ```
 
 ## Single-Frame Training
@@ -90,7 +109,6 @@ python test_audio_3dgs_viewpoint.py \
 Train every metadata frame for one or more scenes:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 \
 A3DGS_USE_METADATA=1 \
 A3DGS_TRAIN_VP="1,2,3,4,5,6,7" \
 A3DGS_INPUT_SOURCE=viewpoint \
@@ -110,7 +128,6 @@ bash train_audio_3dgs_replaynvas_viewpoint_per_scene_all_frames.sh 8 SC-1044 SC-
 The script evaluates only frames that already have checkpoints:
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 \
 A3DGS_USE_METADATA=1 \
 A3DGS_INPUT_SOURCE=viewpoint \
 A3DGS_INPUT_VP=7 \
